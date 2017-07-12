@@ -7,7 +7,9 @@ import { SourceMapConsumer } from 'source-map';
 import { SourceMapSource, RawSource, ConcatSource } from 'webpack-sources';
 import RequestShortener from 'webpack/lib/RequestShortener';
 import ModuleFilenameHelpers from 'webpack/lib/ModuleFilenameHelpers';
+import validateOptions from 'schema-utils';
 import uglify from 'uglify-es';
+import optionsSchema from './options-schema.json';
 
 /* eslint-disable
   no-param-reassign
@@ -15,41 +17,29 @@ import uglify from 'uglify-es';
 
 const warningRegex = /\[.+:([0-9]+),([0-9]+)\]/;
 
-const defaultUglifyOptions = {
-  output: {
-    comments: /^\**!|@preserve|@license|@cc_on/,
-    beautify: false,
-    semicolons: true,
-    shebang: true,
-  },
-};
-
 class UglifyJsPlugin {
-  constructor(options) {
-    if (typeof options !== 'object' || Array.isArray(options)) {
-      this.options = {};
-    } else {
-      this.options = options || {};
-    }
+  constructor(options = {}) {
+    validateOptions(optionsSchema, options, 'UglifyJsPlugin');
 
-    this.options.test = this.options.test || /\.js($|\?)/i;
-    this.options.warningsFilter = this.options.warningsFilter || (() => true);
+    const {
+      uglifyOptions = {},
+      test = /\.js$/i,
+      warningsFilter = () => true,
+      extractComments,
+      sourceMap,
+    } = options;
 
-    this.uglifyOptions = this.options.uglifyOptions || {};
-  }
-
-  static buildDefaultUglifyOptions({ ecma, warnings, parse = {}, compress = {}, mangle, output, toplevel, ie8 }) {
-    return {
-      ecma,
-      warnings,
-      parse,
-      compress,
-      mangle: mangle == null ? true : mangle,
-      // Ignoring sourcemap from options
-      sourceMap: null,
-      output: { ...defaultUglifyOptions.output, ...output },
-      toplevel,
-      ie8,
+    this.options = {
+      test,
+      warningsFilter,
+      extractComments,
+      sourceMap,
+      uglifyOptions: {
+        output: {
+          comments: /^\**!|@preserve|@license|@cc_on/,
+        },
+        ...uglifyOptions,
+      },
     };
   }
 
@@ -150,11 +140,11 @@ class UglifyJsPlugin {
 
   apply(compiler) {
     const requestShortener = new RequestShortener(compiler.context);
-    // Copy uglify options
-    const uglifyOptions = UglifyJsPlugin.buildDefaultUglifyOptions(this.uglifyOptions);
-    // Making sure output options exists if there is an extractComments options
-    if (this.options.extractComments) {
-      uglifyOptions.output = uglifyOptions.output || {};
+    const { uglifyOptions } = this.options;
+    const uglifiedAssets = new WeakSet();
+
+    if (typeof this.options.sourceMap === 'undefined' && (compiler.options.devtool === 'sourcemap' || compiler.options.devtool === 'source-map')) {
+      this.options.sourceMap = true;
     }
 
     compiler.plugin('compilation', (compilation) => {
@@ -166,7 +156,6 @@ class UglifyJsPlugin {
       }
 
       compilation.plugin('optimize-chunk-assets', (chunks, callback) => {
-        const uglifiedAssets = new WeakSet();
         chunks.reduce((acc, chunk) => acc.concat(chunk.files || []), [])
           .concat(compilation.additionalChunkAssets || [])
           .filter(ModuleFilenameHelpers.matchObject.bind(null, this.options))
