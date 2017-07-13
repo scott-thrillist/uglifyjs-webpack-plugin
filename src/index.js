@@ -141,7 +141,6 @@ class UglifyJsPlugin {
   apply(compiler) {
     const requestShortener = new RequestShortener(compiler.context);
     const { uglifyOptions } = this.options;
-    const uglifiedAssets = new WeakSet();
 
     compiler.plugin('compilation', (compilation) => {
       if (this.options.sourceMap) {
@@ -152,6 +151,7 @@ class UglifyJsPlugin {
       }
 
       compilation.plugin('optimize-chunk-assets', (chunks, callback) => {
+        const uglifiedAssets = new WeakSet();
         chunks.reduce((acc, chunk) => acc.concat(chunk.files || []), [])
           .concat(compilation.additionalChunkAssets || [])
           .filter(ModuleFilenameHelpers.matchObject.bind(null, this.options))
